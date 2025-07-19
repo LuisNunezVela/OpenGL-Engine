@@ -1,3 +1,7 @@
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 #include <iostream>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -15,7 +19,7 @@ float sensitivity = 0.1f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-bool wireframe = false;
+
 bool keyPressed = false;
 
 GLfloat lineVertices[6]; // two 3D points (x, y, z)
@@ -192,6 +196,18 @@ int main() {
 
 	float cameraSpeed = 0.2f * deltaTime; // 2.5 units per second
 
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGui::StyleColorsDark();
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init("#version 330");
+
+	bool drawTriangle = true;
+	bool wireframe = false;
+
+
 	while (!glfwWindowShouldClose(window)) {
 
 		float currentFrame = glfwGetTime();
@@ -250,6 +266,11 @@ int main() {
 
 		glClearColor(0.07f, 0.13f, 0.17f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
+
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
 		glUseProgram(shaderProgram);
 
 		glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
@@ -263,7 +284,19 @@ int main() {
 
 		// Draw background square
 		glBindVertexArray(squareVAO);
-		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		if (drawTriangle)
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		ImGui::Begin("ImGUI Ventana");
+		ImGui::Text("Hola");
+		ImGui::Checkbox("Dibujar Triangulo", &drawTriangle);
+		ImGui::Checkbox("Modo Wireframe", &wireframe);
+		glPolygonMode(GL_FRONT_AND_BACK, wireframe ? GL_LINE : GL_FILL);
+		ImGui::End();
+
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		// Draw line if ready
 		if (drawLine) {
@@ -276,6 +309,11 @@ int main() {
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
+
+
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
 
 	// Cleanup
 	glDeleteVertexArrays(1, &squareVAO);
