@@ -2,6 +2,18 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+// Add these global variables at the top of your file:
+float lastX = 400, lastY = 400;
+float yaw = -90.0f; // Yaw is initialized to -90.0 degrees to look forward
+float pitch = 0.0f;
+bool firstMouse = true;
+bool mouseCaptured = false;
+float sensitivity = 0.1f;
+
+float deltaTime = 0.0f;
+float lastFrame = 0.0f;
 
 bool wireframe = false;
 bool keyPressed = false;
@@ -11,11 +23,58 @@ bool firstClick = true;
 bool drawLine = false;
 int clickCount = 0;
 
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 2.0f);   // Starting camera position
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f); // Direction looking forward
+glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);     // Up direction
+
+glm::vec3 horizontalFront = glm::normalize(glm::vec3(cameraFront.x, 0.0f, cameraFront.z));
+
+float cameraSpeed = 0.05f; // Movement speed
+bool isJumping = false;
+float jumpVelocity = 0.0f;
+float gravity = -9.81f; // realistic gravity, in units per second squared
+
 // Converts screen coordinates to OpenGL NDC
 glm::vec2 screenToOpenGLCoords(double x, double y, int width, int height) {
 	float ndcX = (2.0f * x) / width - 1.0f;
 	float ndcY = 1.0f - (2.0f * y) / height;
 	return glm::vec2(ndcX, ndcY);
+}
+
+void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
+	if (!mouseCaptured)
+		return;
+
+	if (firstMouse) {
+		lastX = xpos;
+		lastY = ypos;
+		firstMouse = false;
+	}
+
+	float xoffset = xpos - lastX;
+	float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+	lastX = xpos;
+	lastY = ypos;
+
+	xoffset *= sensitivity;
+	yoffset *= sensitivity;
+
+	yaw += xoffset;
+	pitch += yoffset;
+
+	// Clamp pitch
+	if (pitch > 89.0f)
+		pitch = 89.0f;
+	if (pitch < -89.0f)
+		pitch = -89.0f;
+
+	// Convert to direction vector
+	glm::vec3 direction;
+	direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+	direction.y = sin(glm::radians(pitch));
+	direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+	cameraFront = glm::normalize(direction);
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
@@ -45,9 +104,11 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 const char* vertexShaderSource = "#version 330 core\n"
 "layout (location = 0) in vec3 aPos;\n"
+"uniform mat4 view;\n"
+"uniform mat4 projection;\n"
 "void main()\n"
 "{\n"
-"	gl_Position = vec4(aPos, 1.0);\n"
+"   gl_Position = projection * view * vec4(aPos, 1.0);\n"
 "}\0";
 
 const char* fragmentShaderSource = "#version 330 core\n"
@@ -90,13 +151,13 @@ int main() {
 
 	// Square background
 	GLfloat squareVertices[] = {
-		-0.5f, -0.5f, 0.0f,
-		 0.5f, -0.5f, 0.0f,
-		 0.5f,  0.5f, 0.0f,
+		-1.0f, -1.0f, 0.0f,
+		 1.0f, -1.0f, 0.0f,
+		 1.0f,  1.0f, 0.0f,
 
-		-0.5f, -0.5f, 0.0f,
-		 0.5f,  0.5f, 0.0f,
-		-0.5f,  0.5f, 0.0f
+		-1.0f, -1.0f, 0.0f,
+		 1.0f,  1.0f, 0.0f,
+		-1.0f,  1.0f, 0.0f
 	};
 
 	// VAO & VBO for square
@@ -122,8 +183,21 @@ int main() {
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
+	glfwSetCursorPosCallback(window, mouse_callback);
+
+
+	float currentFrame = glfwGetTime();
+	deltaTime = currentFrame - lastFrame;
+	lastFrame = currentFrame;
+
+	float cameraSpeed = 0.2f * deltaTime; // 2.5 units per second
 
 	while (!glfwWindowShouldClose(window)) {
+
+		float currentFrame = glfwGetTime();
+		deltaTime = currentFrame - lastFrame;
+		lastFrame = currentFrame;
+
 		if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS && !keyPressed) {
 			wireframe = !wireframe;
 			keyPressed = true;
@@ -133,9 +207,59 @@ int main() {
 			keyPressed = false;
 		}
 
+		// Left click to toggle camera mouse capture
+		if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && !mouseCaptured) {
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+			mouseCaptured = true;
+			firstMouse = true;
+		}
+		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && mouseCaptured) {
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			mouseCaptured = false;
+		}
+
+		horizontalFront = glm::normalize(glm::vec3(cameraFront.x, 0.0f, cameraFront.z));
+
+		// Movement controls
+		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+			cameraPos += cameraSpeed * horizontalFront;
+		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+			cameraPos -= cameraSpeed * horizontalFront;
+		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+			cameraPos -= glm::normalize(glm::cross(horizontalFront, cameraUp)) * cameraSpeed;
+		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+			cameraPos += glm::normalize(glm::cross(horizontalFront, cameraUp)) * cameraSpeed;
+
+		// JUMPING
+		// Handle jump input
+		if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !isJumping && cameraPos.y <= 0.001f) {
+			isJumping = true;
+			jumpVelocity = 2.5f; // units per second
+		}
+		// Update jump physics
+		if (isJumping) {
+			jumpVelocity += gravity * deltaTime; // simulate gravity per frame
+			cameraPos.y += jumpVelocity * deltaTime;
+
+			if (cameraPos.y <= 0.0f) { // Hit the ground
+				cameraPos.y = 0.0f;
+				isJumping = false;
+				jumpVelocity = 0.0f;
+			}
+		}
+
 		glClearColor(0.07f, 0.13f, 0.17f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		glUseProgram(shaderProgram);
+
+		glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+		glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 800.0f, 0.1f, 100.0f);
+
+		GLuint viewLoc = glGetUniformLocation(shaderProgram, "view");
+		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, &view[0][0]);
+
+		GLuint projLoc = glGetUniformLocation(shaderProgram, "projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, &projection[0][0]);
 
 		// Draw background square
 		glBindVertexArray(squareVAO);
